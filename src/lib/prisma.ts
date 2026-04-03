@@ -1,11 +1,13 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaLibSQL } from "@prisma/adapter-libsql";
-import { createClient } from "@libsql/client";
 
 const globalForPrisma = globalThis as unknown as { _prisma: PrismaClient | undefined };
 
 function createPrismaClient(): PrismaClient {
   if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PrismaLibSQL } = require("@prisma/adapter-libsql");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createClient } = require("@libsql/client");
     const libsql = createClient({
       url: process.env.TURSO_DATABASE_URL,
       authToken: process.env.TURSO_AUTH_TOKEN,
@@ -16,8 +18,17 @@ function createPrismaClient(): PrismaClient {
   return new PrismaClient();
 }
 
-if (!globalForPrisma._prisma) {
-  globalForPrisma._prisma = createPrismaClient();
-}
-
-export const prisma = globalForPrisma._prisma;
+// Lazy proxy: delays Prisma init until first runtime access (skips build time)
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop, _receiver) {
+    if (!globalForPrisma._prisma) {
+      globalForPrisma._prisma = createPrismaClient();
+    }
+    const client = globalForPrisma._prisma;
+    const value = (client as never)[prop];
+    if (typeof value === "function") {
+      return value.bind(client);
+    }
+    return value;
+  },
+});
