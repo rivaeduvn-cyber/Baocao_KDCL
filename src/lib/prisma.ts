@@ -7,9 +7,10 @@ function createPrismaClient(): PrismaClient {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PrismaLibSQL } = require("@prisma/adapter-libsql");
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createClient } = require("@libsql/client");
+    const { createClient } = require("@libsql/client/http");
+    const url = process.env.TURSO_DATABASE_URL.replace("libsql://", "https://");
     const libsql = createClient({
-      url: process.env.TURSO_DATABASE_URL,
+      url,
       authToken: process.env.TURSO_AUTH_TOKEN,
     });
     const adapter = new PrismaLibSQL(libsql);
