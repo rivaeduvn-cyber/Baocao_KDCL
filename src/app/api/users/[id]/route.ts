@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { updateUser, deleteUser } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
 export async function PUT(
@@ -22,11 +22,7 @@ export async function PUT(
   if (body.role) data.role = body.role;
   if (body.password) data.password = await bcrypt.hash(body.password, 10);
 
-  const user = await prisma.user.update({
-    where: { id },
-    data,
-    select: { id: true, email: true, name: true, role: true },
-  });
+  const user = await updateUser(id, data);
 
   return NextResponse.json(user);
 }
@@ -41,6 +37,6 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  await prisma.user.delete({ where: { id } });
+  await deleteUser(id);
   return NextResponse.json({ ok: true });
 }

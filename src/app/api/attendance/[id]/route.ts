@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { findAttendanceById, updateAttendance, deleteAttendance } from "@/lib/db";
 
 export async function PUT(
   req: NextRequest,
@@ -11,7 +11,7 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const existing = await prisma.attendance.findUnique({ where: { id } });
+  const existing = await findAttendanceById(id);
   if (!existing) return NextResponse.json({ error: "Không tìm thấy" }, { status: 404 });
 
   if (session.user.role !== "ADMIN" && existing.userId !== session.user.id) {
@@ -19,12 +19,9 @@ export async function PUT(
   }
 
   const body = await req.json();
-  const updated = await prisma.attendance.update({
-    where: { id },
-    data: {
-      ...(body.status && { status: body.status }),
-      ...(body.workReport !== undefined && { workReport: body.workReport }),
-    },
+  const updated = await updateAttendance(id, {
+    ...(body.status && { status: body.status }),
+    ...(body.workReport !== undefined && { workReport: body.workReport }),
   });
 
   return NextResponse.json(updated);
@@ -40,6 +37,6 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  await prisma.attendance.delete({ where: { id } });
+  await deleteAttendance(id);
   return NextResponse.json({ ok: true });
 }

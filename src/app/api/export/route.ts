@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { findAttendances, AttendanceWithUser } from "@/lib/db";
 import ExcelJS from "exceljs";
 
 export async function GET(req: NextRequest) {
@@ -15,15 +15,11 @@ export async function GET(req: NextRequest) {
   const month = searchParams.get("month");
   const userId = searchParams.get("userId");
 
-  const where: Record<string, unknown> = {};
-  if (month) where.date = { startsWith: month };
+  const where: { userId?: string; month?: string } = {};
+  if (month) where.month = month;
   if (userId) where.userId = userId;
 
-  const attendances = await prisma.attendance.findMany({
-    where,
-    include: { user: { select: { name: true, email: true } } },
-    orderBy: [{ date: "asc" }, { session: "asc" }],
-  });
+  const attendances = await findAttendances(where, { includeUser: true, orderBy: "asc" }) as AttendanceWithUser[];
 
   if (format === "excel") {
     const workbook = new ExcelJS.Workbook();

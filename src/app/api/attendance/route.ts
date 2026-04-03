@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { findAttendances, createAttendance } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -12,24 +12,19 @@ export async function GET(req: NextRequest) {
   const userId = searchParams.get("userId");
   const ownOnly = searchParams.get("ownOnly");
 
-  const where: Record<string, unknown> = {};
+  const where: { userId?: string; month?: string } = {};
 
   if (session.user.role !== "ADMIN" || ownOnly === "true") {
-    // Employee always sees own data; admin sees own data when ownOnly=true
     where.userId = session.user.id;
   } else if (userId) {
     where.userId = userId;
   }
 
   if (month) {
-    where.date = { startsWith: month };
+    where.month = month;
   }
 
-  const attendances = await prisma.attendance.findMany({
-    where,
-    include: { user: { select: { name: true, email: true } } },
-    orderBy: [{ date: "desc" }, { session: "asc" }],
-  });
+  const attendances = await findAttendances(where, { includeUser: true, orderBy: "desc" });
 
   return NextResponse.json(attendances);
 }
@@ -50,14 +45,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const attendance = await prisma.attendance.create({
-      data: {
-        userId: session.user.id,
-        date,
-        session: sess,
-        status: status || "PRESENT",
-        workReport: workReport || null,
-      },
+    const attendance = await createAttendance({
+      userId: session.user.id,
+      date,
+      session: sess,
+      status: status || "PRESENT",
+      workReport: workReport || null,
     });
     return NextResponse.json(attendance, { status: 201 });
   } catch (e: unknown) {
