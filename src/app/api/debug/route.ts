@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const tursoUrl = process.env.TURSO_DATABASE_URL || "not set";
+  const tursoUrl = (process.env.TURSO_DATABASE_URL || "").replace("libsql://", "https://");
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
