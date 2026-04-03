@@ -2,27 +2,26 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   const tursoUrl = process.env.TURSO_DATABASE_URL || "not set";
-
-  // Test 1: URL constructor
-  let urlTest = "ok";
-  try { new URL(tursoUrl); } catch (e) { urlTest = String(e); }
-
-  // Test 2: Replace libsql:// with https://
   const httpsUrl = tursoUrl.replace("libsql://", "https://");
-  let httpsUrlTest = "ok";
-  try { new URL(httpsUrl); } catch (e) { httpsUrlTest = String(e); }
 
-  // Test 3: Try libsql with https url
+  // Direct HTTP request to Turso
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createClient } = require("@libsql/client/web");
-    const client = createClient({
-      url: httpsUrl,
-      authToken: process.env.TURSO_AUTH_TOKEN,
+    const res = await fetch(httpsUrl + "/v2/pipeline", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + process.env.TURSO_AUTH_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requests: [
+          { type: "execute", stmt: { sql: "SELECT id, email, name, role FROM User" } },
+          { type: "close" },
+        ],
+      }),
     });
-    const result = await client.execute("SELECT 1 as test");
-    return NextResponse.json({ ok: true, urlTest, httpsUrlTest, dbTest: result.rows });
+    const data = await res.json();
+    return NextResponse.json({ ok: true, nodeVersion: process.version, data });
   } catch (e: unknown) {
-    return NextResponse.json({ ok: false, urlTest, httpsUrlTest, error: String(e) });
+    return NextResponse.json({ ok: false, nodeVersion: process.version, error: String(e) });
   }
 }
