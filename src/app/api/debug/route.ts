@@ -7,7 +7,7 @@ export async function GET() {
   // Test libsql connection directly
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createClient } = require("@libsql/client/web");
+    const { createClient } = require("@libsql/client");
     const client = createClient({
       url,
       authToken: process.env.TURSO_AUTH_TOKEN,
