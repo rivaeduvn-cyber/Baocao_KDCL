@@ -15,7 +15,7 @@ export async function GET() {
   // Test 3: Try libsql with https url
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createClient } = require("@libsql/client");
+    const { createClient } = require("@libsql/client/web");
     const client = createClient({
       url: httpsUrl,
       authToken: process.env.TURSO_AUTH_TOKEN,
