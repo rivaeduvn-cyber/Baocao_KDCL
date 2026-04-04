@@ -15,7 +15,6 @@ const employeeLinks = [
 const adminLinks = [
   { href: "/admin/users", label: "Quản lý nhân viên" },
   { href: "/admin/attendance", label: "Chấm công tổng hợp" },
-  { href: "/admin/reports", label: "Báo cáo tổng hợp" },
 ];
 
 export default function Sidebar() {
