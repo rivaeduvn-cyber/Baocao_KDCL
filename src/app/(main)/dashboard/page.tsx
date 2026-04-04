@@ -35,12 +35,12 @@ export default function DashboardPage() {
   }, []);
 
   if (loading) {
-    return <div className="text-gray-500">Đang tải...</div>;
+    return <div className="text-gray-500 dark:text-gray-400">Đang tải...</div>;
   }
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
         Tổng quan {session?.user?.role === "ADMIN" ? "(Admin)" : ""}
       </h2>
       {stats && (

@@ -14,10 +14,10 @@ export default function AttendancePage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Chấm công</h2>
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Chấm công</h2>
       <AttendanceForm defaultDate={getTodayString()} onSuccess={handleSuccess} />
       <div>
-        <h3 className="text-lg font-semibold text-gray-700 mb-3">
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-3">
           Lịch sử chấm công
         </h3>
         <AttendanceTable key={refreshKey} ownOnly />
