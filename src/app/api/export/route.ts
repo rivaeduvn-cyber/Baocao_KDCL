@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { findAttendances, AttendanceWithUser } from "@/lib/db";
+import { findAttendances, findAttachmentsByAttendanceIds, AttendanceWithUser } from "@/lib/db";
 import ExcelJS from "exceljs";
 
 export async function GET(req: NextRequest) {
@@ -21,6 +21,16 @@ export async function GET(req: NextRequest) {
 
   const attendances = await findAttendances(where, { includeUser: true, orderBy: "asc" }) as AttendanceWithUser[];
 
+  // Fetch all attachments for these attendances
+  const attendanceIds = attendances.map((a) => a.id);
+  const allAttachments = await findAttachmentsByAttendanceIds(attendanceIds);
+  const attachmentMap = new Map<string, string[]>();
+  for (const att of allAttachments) {
+    const list = attachmentMap.get(att.attendanceId) || [];
+    list.push(att.fileUrl);
+    attachmentMap.set(att.attendanceId, list);
+  }
+
   if (format === "excel") {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Báo cáo");
@@ -32,6 +42,7 @@ export async function GET(req: NextRequest) {
       { header: "Buổi", key: "session", width: 10 },
       { header: "Trạng thái", key: "status", width: 12 },
       { header: "Công việc", key: "workReport", width: 40 },
+      { header: "File đính kèm", key: "attachments", width: 50 },
     ];
 
     const statusMap: Record<string, string> = {
@@ -39,6 +50,7 @@ export async function GET(req: NextRequest) {
     };
 
     for (const a of attendances) {
+      const fileUrls = attachmentMap.get(a.id) || [];
       sheet.addRow({
         name: a.user.name,
         email: a.user.email,
@@ -46,17 +58,17 @@ export async function GET(req: NextRequest) {
         session: a.session === "MORNING" ? "Sáng" : "Chiều",
         status: statusMap[a.status] || a.status,
         workReport: a.workReport || "",
+        attachments: fileUrls.join("\n"),
       });
     }
 
     // Style header
-    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(1).fill = {
       type: "pattern",
       pattern: "solid",
       fgColor: { argb: "FF4472C4" },
     };
-    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
 
     const buffer = await workbook.xlsx.writeBuffer();
     return new NextResponse(buffer, {
@@ -67,7 +79,5 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // PDF format - return simple HTML-based response for now
-  // jspdf with Vietnamese font support is complex server-side, use client-side instead
-  return NextResponse.json({ error: "PDF export available from client side" }, { status: 400 });
+  return NextResponse.json({ error: "Format không hỗ trợ" }, { status: 400 });
 }

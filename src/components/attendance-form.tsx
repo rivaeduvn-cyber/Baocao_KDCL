@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useToast } from "@/components/toast";
 import { Send, CalendarDays } from "lucide-react";
+import FileUploadInput from "@/components/file-upload-input";
 
 interface Props {
   defaultDate: string;
@@ -14,6 +15,7 @@ export default function AttendanceForm({ defaultDate, onSuccess }: Props) {
   const [session, setSession] = useState("MORNING");
   const [status, setStatus] = useState("PRESENT");
   const [workReport, setWorkReport] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -21,22 +23,46 @@ export default function AttendanceForm({ defaultDate, onSuccess }: Props) {
     e.preventDefault();
     setLoading(true);
 
+    // Step 1: Create attendance
     const res = await fetch("/api/attendance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date, session, status, workReport }),
     });
 
-    setLoading(false);
-
     if (!res.ok) {
+      setLoading(false);
       const data = await res.json();
       toast(data.error || "Lỗi xử lý", "error");
       return;
     }
 
-    toast("Chấm công thành công!");
+    const attendance = await res.json();
+
+    // Step 2: Upload files if any
+    if (files.length > 0) {
+      const formData = new FormData();
+      formData.set("attendanceId", attendance.id);
+      files.forEach((f) => formData.append("files", f));
+
+      const uploadRes = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json();
+        toast(`Chấm công OK nhưng upload file lỗi: ${data.error}`, "error");
+      } else {
+        toast(`Chấm công + đính kèm ${files.length} file thành công!`);
+      }
+    } else {
+      toast("Chấm công thành công!");
+    }
+
+    setLoading(false);
     setWorkReport("");
+    setFiles([]);
     onSuccess();
   }
 
@@ -104,6 +130,9 @@ export default function AttendanceForm({ defaultDate, onSuccess }: Props) {
           placeholder="Mô tả công việc đang thực hiện trong buổi làm việc..."
         />
       </div>
+
+      <FileUploadInput files={files} onChange={setFiles} />
+
       <button
         type="submit"
         disabled={loading}

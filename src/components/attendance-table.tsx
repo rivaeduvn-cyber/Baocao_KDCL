@@ -3,7 +3,16 @@
 import { useEffect, useState } from "react";
 import { formatDate, getSessionLabel, getStatusLabel, getCurrentMonth } from "@/lib/utils";
 import { useToast } from "@/components/toast";
-import { Trash2 } from "lucide-react";
+import { Trash2, Paperclip, ChevronDown, ChevronUp } from "lucide-react";
+import AttachmentList from "@/components/attachment-list";
+
+interface AttachmentItem {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  fileType: string;
+}
 
 interface Attendance {
   id: string;
@@ -34,6 +43,9 @@ export default function AttendanceTable({
 }: Props) {
   const [data, setData] = useState<Attendance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<Record<string, AttachmentItem[]>>({});
+  const [loadingAttachments, setLoadingAttachments] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -51,6 +63,37 @@ export default function AttendanceTable({
     }
     fetchData();
   }, [month, userId, ownOnly]);
+
+  async function toggleAttachments(id: string) {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (!attachments[id]) {
+      setLoadingAttachments(id);
+      const res = await fetch(`/api/upload?attendanceId=${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAttachments((prev) => ({ ...prev, [id]: data }));
+      }
+      setLoadingAttachments(null);
+    }
+  }
+
+  async function handleDeleteAttachment(attachmentId: string, attendanceId: string) {
+    if (!confirm("Xóa file này?")) return;
+    const res = await fetch(`/api/upload/${attachmentId}`, { method: "DELETE" });
+    if (res.ok) {
+      setAttachments((prev) => ({
+        ...prev,
+        [attendanceId]: prev[attendanceId]?.filter((a) => a.id !== attachmentId) || [],
+      }));
+      toast("Đã xóa file");
+    } else {
+      toast("Lỗi khi xóa file", "error");
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!confirm("Xóa bản ghi này?")) return;
@@ -101,37 +144,70 @@ export default function AttendanceTable({
               <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Buổi</th>
               <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Trạng thái</th>
               {showReport && <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Công việc</th>}
+              <th className="px-4 py-3.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <Paperclip className="w-3.5 h-3.5 inline" />
+              </th>
               {admin && <th className="px-4 py-3.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Thao tác</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {data.map((item) => (
-              <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
-                {showUser && <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{getUserName(item)}</td>}
-                <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{formatDate(item.date)}</td>
-                <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getSessionLabel(item.session)}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[item.status] || ""}`}>
-                    {getStatusLabel(item.status)}
-                  </span>
-                </td>
-                {showReport && (
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate">
-                    {item.workReport || <span className="text-gray-300 dark:text-gray-600">-</span>}
+              <>
+                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                  {showUser && <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{getUserName(item)}</td>}
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{formatDate(item.date)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getSessionLabel(item.session)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${statusColors[item.status] || ""}`}>
+                      {getStatusLabel(item.status)}
+                    </span>
                   </td>
-                )}
-                {admin && (
-                  <td className="px-4 py-3 text-right">
+                  {showReport && (
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate">
+                      {item.workReport || <span className="text-gray-300 dark:text-gray-600">-</span>}
+                    </td>
+                  )}
+                  <td className="px-4 py-3 text-center">
                     <button
-                      onClick={() => handleDelete(item.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors"
-                      title="Xóa"
+                      onClick={() => toggleAttachments(item.id)}
+                      className="p-1 text-gray-400 hover:text-blue-500 transition-colors rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950"
+                      title="Xem file đính kèm"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {expandedId === item.id
+                        ? <ChevronUp className="w-4 h-4" />
+                        : <ChevronDown className="w-4 h-4" />}
                     </button>
                   </td>
+                  {admin && (
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors"
+                        title="Xóa"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+                {expandedId === item.id && (
+                  <tr key={`${item.id}-files`}>
+                    <td colSpan={10} className="px-4 py-3 bg-gray-50/50 dark:bg-gray-800/20">
+                      {loadingAttachments === item.id ? (
+                        <p className="text-xs text-gray-400">Đang tải file...</p>
+                      ) : attachments[item.id]?.length ? (
+                        <AttachmentList
+                          attachments={attachments[item.id]}
+                          canDelete={admin || !showUser}
+                          onDelete={(attachmentId) => handleDeleteAttachment(attachmentId, item.id)}
+                        />
+                      ) : (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">Không có file đính kèm</p>
+                      )}
+                    </td>
+                  </tr>
                 )}
-              </tr>
+              </>
             ))}
           </tbody>
         </table>

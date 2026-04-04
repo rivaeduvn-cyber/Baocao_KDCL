@@ -296,3 +296,101 @@ export async function deleteAttendance(id: string): Promise<void> {
   }
   await tursoExecute("DELETE FROM Attendance WHERE id = ?", [id]);
 }
+
+// ---------- Attachment operations ----------
+
+export interface Attachment {
+  id: string;
+  attendanceId: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  fileType: string;
+  createdAt: string | Date;
+}
+
+export async function findAttachmentsByAttendanceId(
+  attendanceId: string
+): Promise<Attachment[]> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attachment.findMany({
+      where: { attendanceId },
+      orderBy: { createdAt: "asc" },
+    }) as unknown as Attachment[];
+  }
+  const result = await tursoExecute(
+    "SELECT * FROM Attachment WHERE attendanceId = ? ORDER BY createdAt ASC",
+    [attendanceId]
+  );
+  return result.rows as Attachment[];
+}
+
+export async function findAttachmentsByAttendanceIds(
+  ids: string[]
+): Promise<Attachment[]> {
+  if (ids.length === 0) return [];
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attachment.findMany({
+      where: { attendanceId: { in: ids } },
+      orderBy: { createdAt: "asc" },
+    }) as unknown as Attachment[];
+  }
+  const placeholders = ids.map(() => "?").join(",");
+  const result = await tursoExecute(
+    `SELECT * FROM Attachment WHERE attendanceId IN (${placeholders}) ORDER BY createdAt ASC`,
+    ids
+  );
+  return result.rows as Attachment[];
+}
+
+export async function createAttachment(data: {
+  attendanceId: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  fileType: string;
+}): Promise<Attachment> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attachment.create({ data }) as unknown as Attachment;
+  }
+  const id = generateId();
+  const now = nowISO();
+  await tursoExecute(
+    "INSERT INTO Attachment (id, attendanceId, fileName, fileUrl, fileSize, fileType, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [id, data.attendanceId, data.fileName, data.fileUrl, data.fileSize, data.fileType, now]
+  );
+  return { id, ...data, createdAt: now };
+}
+
+export async function findAttachmentById(id: string): Promise<Attachment | null> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attachment.findUnique({ where: { id } }) as unknown as Attachment | null;
+  }
+  const result = await tursoExecute("SELECT * FROM Attachment WHERE id = ?", [id]);
+  return (result.rows[0] as Attachment) ?? null;
+}
+
+export async function countAttachmentsByAttendanceId(attendanceId: string): Promise<number> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attachment.count({ where: { attendanceId } });
+  }
+  const result = await tursoExecute(
+    "SELECT COUNT(*) as cnt FROM Attachment WHERE attendanceId = ?",
+    [attendanceId]
+  );
+  return Number(result.rows[0]?.cnt ?? 0);
+}
+
+export async function deleteAttachment(id: string): Promise<void> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    await prisma.attachment.delete({ where: { id } });
+    return;
+  }
+  await tursoExecute("DELETE FROM Attachment WHERE id = ?", [id]);
+}
