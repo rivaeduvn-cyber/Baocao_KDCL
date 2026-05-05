@@ -139,6 +139,20 @@ function tursoTranslate(name: string, sql: string): string {
     `;
   }
 
+  if (name === "20260505035500_add_attendance_review") {
+    return `
+      ALTER TABLE "Attendance" ADD COLUMN "reviewStatus"    TEXT;
+      ALTER TABLE "Attendance" ADD COLUMN "reviewerId"      TEXT;
+      ALTER TABLE "Attendance" ADD COLUMN "reviewComment"   TEXT;
+      ALTER TABLE "Attendance" ADD COLUMN "reviewedAt"      DATETIME;
+      ALTER TABLE "Attendance" ADD COLUMN "autoApproveAt"   DATETIME;
+      ALTER TABLE "Attendance" ADD COLUMN "autoApproved"    BOOLEAN NOT NULL DEFAULT 0;
+      ALTER TABLE "Attendance" ADD COLUMN "delegatedFromId" TEXT;
+      CREATE INDEX IF NOT EXISTS "Attendance_reviewStatus_autoApproveAt_idx" ON "Attendance"("reviewStatus", "autoApproveAt");
+      CREATE INDEX IF NOT EXISTS "Attendance_reviewerId_idx" ON "Attendance"("reviewerId");
+    `;
+  }
+
   console.warn(`⚠ Migration "${name}" uses RedefineTables but no Turso translation defined.`);
   console.warn(`  Skipping — apply it manually or extend tursoTranslate().`);
   return "";

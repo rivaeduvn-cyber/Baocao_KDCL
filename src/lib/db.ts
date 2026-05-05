@@ -32,6 +32,13 @@ export interface Attendance {
   workReport: string | null;
   createdAt: string | Date;
   updatedAt: string | Date;
+  reviewStatus: string | null;
+  reviewerId: string | null;
+  reviewComment: string | null;
+  reviewedAt: string | Date | null;
+  autoApproveAt: string | Date | null;
+  autoApproved: boolean;
+  delegatedFromId: string | null;
 }
 
 export interface AttendanceWithUser extends Attendance {
@@ -232,6 +239,13 @@ export async function findAttendances(
       workReport: (r.workReport as string) ?? null,
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
+      reviewStatus: (r.reviewStatus as string) ?? null,
+      reviewerId: (r.reviewerId as string) ?? null,
+      reviewComment: (r.reviewComment as string) ?? null,
+      reviewedAt: (r.reviewedAt as string) ?? null,
+      autoApproveAt: (r.autoApproveAt as string) ?? null,
+      autoApproved: Number(r.autoApproved) === 1,
+      delegatedFromId: (r.delegatedFromId as string) ?? null,
       user: { name: r.userName as string, email: r.userEmail as string },
     }));
   }
@@ -240,8 +254,27 @@ export async function findAttendances(
     `SELECT * FROM Attendance a ${whereClause} ORDER BY a.date ${order === "asc" ? "ASC" : "DESC"}, a.session ASC`,
     args
   );
-  return result.rows as Attendance[];
+  return result.rows.map((r) => ({
+    id: r.id as string,
+    userId: r.userId as string,
+    date: r.date as string,
+    session: r.session as string,
+    status: r.status as string,
+    workReport: (r.workReport as string) ?? null,
+    createdAt: r.createdAt as string,
+    updatedAt: r.updatedAt as string,
+    reviewStatus: (r.reviewStatus as string) ?? null,
+    reviewerId: (r.reviewerId as string) ?? null,
+    reviewComment: (r.reviewComment as string) ?? null,
+    reviewedAt: (r.reviewedAt as string) ?? null,
+    autoApproveAt: (r.autoApproveAt as string) ?? null,
+    autoApproved: Number(r.autoApproved) === 1,
+    delegatedFromId: (r.delegatedFromId as string) ?? null,
+  }));
 }
+
+/** 3 ngày = 3 * 86400 * 1000 ms */
+const AUTO_APPROVE_MS = 3 * 24 * 60 * 60 * 1000;
 
 export async function createAttendance(data: {
   userId: string;
@@ -250,6 +283,11 @@ export async function createAttendance(data: {
   status?: string;
   workReport?: string | null;
 }): Promise<Attendance> {
+  // Nếu có workReport → set PENDING + autoApproveAt = now + 3 ngày
+  const hasReport = !!(data.workReport && data.workReport.trim().length > 0);
+  const reviewStatus = hasReport ? "PENDING" : null;
+  const autoApproveAt = hasReport ? new Date(Date.now() + AUTO_APPROVE_MS) : null;
+
   if (!IS_TURSO) {
     const prisma = await getPrisma();
     return prisma.attendance.create({
@@ -259,6 +297,8 @@ export async function createAttendance(data: {
         session: data.session,
         status: data.status || "PRESENT",
         workReport: data.workReport ?? null,
+        reviewStatus,
+        autoApproveAt,
       },
     }) as Promise<Attendance>;
   }
@@ -267,11 +307,17 @@ export async function createAttendance(data: {
   const now = nowISO();
   try {
     await tursoExecute(
-      "INSERT INTO Attendance (id, userId, date, session, status, workReport, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, data.userId, data.date, data.session, data.status || "PRESENT", data.workReport ?? null, now, now]
+      "INSERT INTO Attendance (id, userId, date, session, status, workReport, reviewStatus, autoApproveAt, autoApproved, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+      [
+        id, data.userId, data.date, data.session,
+        data.status || "PRESENT",
+        data.workReport ?? null,
+        reviewStatus,
+        autoApproveAt ? autoApproveAt.toISOString() : null,
+        now, now,
+      ]
     );
   } catch (e: unknown) {
-    // Unique constraint violation (userId, date, session)
     if (e instanceof Error && (e.message.includes("UNIQUE") || e.message.includes("unique"))) {
       const err = new Error("UNIQUE_VIOLATION");
       (err as unknown as { code: string }).code = "P2002";
@@ -288,6 +334,13 @@ export async function createAttendance(data: {
     workReport: data.workReport ?? null,
     createdAt: now,
     updatedAt: now,
+    reviewStatus,
+    reviewerId: null,
+    reviewComment: null,
+    reviewedAt: null,
+    autoApproveAt: autoApproveAt ? autoApproveAt.toISOString() : null,
+    autoApproved: false,
+    delegatedFromId: null,
   };
 }
 
@@ -330,6 +383,121 @@ export async function deleteAttendance(id: string): Promise<void> {
     return;
   }
   await tursoExecute("DELETE FROM Attendance WHERE id = ?", [id]);
+}
+
+/**
+ * Apply review decision to attendance.
+ * Side effect: updates reviewStatus + reviewerId + reviewComment + reviewedAt.
+ * If decision is NEEDS_REVISION, the user can re-edit (handled in app logic).
+ */
+export async function reviewAttendance(
+  id: string,
+  data: {
+    reviewStatus: "APPROVED" | "NEEDS_REVISION" | "REJECTED";
+    reviewerId: string;
+    reviewComment: string | null;
+    autoApproved?: boolean;
+    delegatedFromId?: string | null;
+  }
+): Promise<Attendance> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attendance.update({
+      where: { id },
+      data: {
+        reviewStatus: data.reviewStatus,
+        reviewerId: data.reviewerId,
+        reviewComment: data.reviewComment,
+        reviewedAt: new Date(),
+        autoApproved: data.autoApproved ?? false,
+        delegatedFromId: data.delegatedFromId ?? null,
+      },
+    }) as Promise<Attendance>;
+  }
+  const now = nowISO();
+  await tursoExecute(
+    `UPDATE Attendance
+     SET reviewStatus = ?, reviewerId = ?, reviewComment = ?, reviewedAt = ?,
+         autoApproved = ?, delegatedFromId = ?, updatedAt = ?
+     WHERE id = ?`,
+    [
+      data.reviewStatus,
+      data.reviewerId,
+      data.reviewComment,
+      now,
+      data.autoApproved ? 1 : 0,
+      data.delegatedFromId ?? null,
+      now,
+      id,
+    ]
+  );
+  const result = await tursoExecute("SELECT * FROM Attendance WHERE id = ?", [id]);
+  return result.rows[0] as Attendance;
+}
+
+/**
+ * Find attendances ready to auto-approve (PENDING + autoApproveAt <= now).
+ * Used by cron job.
+ */
+export async function findAttendancesNeedingAutoApprove(): Promise<Attendance[]> {
+  const now = nowISO();
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attendance.findMany({
+      where: {
+        reviewStatus: "PENDING",
+        autoApproveAt: { lte: new Date(now) },
+      },
+    }) as Promise<Attendance[]>;
+  }
+  const result = await tursoExecute(
+    "SELECT * FROM Attendance WHERE reviewStatus = 'PENDING' AND autoApproveAt IS NOT NULL AND autoApproveAt <= ?",
+    [now]
+  );
+  return result.rows as Attendance[];
+}
+
+/**
+ * Reset review state to PENDING when user re-submits a NEEDS_REVISION report.
+ * Refreshes autoApproveAt = now + 3d.
+ */
+export async function resetAttendanceReview(id: string): Promise<void> {
+  const newDeadline = new Date(Date.now() + AUTO_APPROVE_MS).toISOString();
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    await prisma.attendance.update({
+      where: { id },
+      data: {
+        reviewStatus: "PENDING",
+        reviewedAt: null,
+        autoApproveAt: new Date(newDeadline),
+        autoApproved: false,
+      },
+    });
+    return;
+  }
+  const now = nowISO();
+  await tursoExecute(
+    "UPDATE Attendance SET reviewStatus = 'PENDING', reviewedAt = NULL, autoApproveAt = ?, autoApproved = 0, updatedAt = ? WHERE id = ?",
+    [newDeadline, now, id]
+  );
+}
+
+/** Count pending reviews for a given reviewer (direct subordinates only). */
+export async function countPendingReviewsFor(userIds: string[]): Promise<number> {
+  if (userIds.length === 0) return 0;
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.attendance.count({
+      where: { userId: { in: userIds }, reviewStatus: "PENDING" },
+    });
+  }
+  const placeholders = userIds.map(() => "?").join(",");
+  const result = await tursoExecute(
+    `SELECT COUNT(*) as cnt FROM Attendance WHERE userId IN (${placeholders}) AND reviewStatus = 'PENDING'`,
+    userIds
+  );
+  return Number(result.rows[0]?.cnt ?? 0);
 }
 
 // ---------- Attachment operations ----------

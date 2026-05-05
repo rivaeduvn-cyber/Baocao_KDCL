@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { findAttendanceById, updateAttendance, deleteAttendance } from "@/lib/db";
+import { findAttendanceById, updateAttendance, deleteAttendance, resetAttendanceReview } from "@/lib/db";
 import { isWithinEditWindow, EDIT_WINDOW_DAYS } from "@/lib/utils";
 
 export async function PUT(
@@ -19,7 +19,13 @@ export async function PUT(
     return NextResponse.json({ error: "Không có quyền" }, { status: 403 });
   }
 
-  if (session.user.role !== "ADMIN" && !isWithinEditWindow(existing.date)) {
+  // Bypass edit-window khi NEEDS_REVISION (user phải sửa lại theo yêu cầu của cấp trên)
+  const isNeedsRevision = existing.reviewStatus === "NEEDS_REVISION";
+  if (
+    session.user.role !== "ADMIN" &&
+    !isNeedsRevision &&
+    !isWithinEditWindow(existing.date)
+  ) {
     return NextResponse.json(
       { error: `Chỉ được sửa trong vòng ${EDIT_WINDOW_DAYS} ngày` },
       { status: 403 }
@@ -31,6 +37,11 @@ export async function PUT(
     ...(body.status && { status: body.status }),
     ...(body.workReport !== undefined && { workReport: body.workReport }),
   });
+
+  // Khi user re-submit báo cáo NEEDS_REVISION → reset về PENDING + refresh autoApproveAt
+  if (isNeedsRevision && existing.userId === session.user.id) {
+    await resetAttendanceReview(id);
+  }
 
   return NextResponse.json(updated);
 }

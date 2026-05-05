@@ -18,23 +18,46 @@ interface AttachmentItem {
 
 interface Attendance {
   id: string;
+  userId?: string;
   date: string;
   session: string;
   status: string;
   workReport: string | null;
+  reviewStatus?: string | null;
+  reviewComment?: string | null;
+  reviewerId?: string | null;
+  reviewedAt?: string | null;
+  autoApproved?: boolean;
   user?: { name: string; email: string };
   userName?: string;
 }
+
+const REVIEW_LABEL: Record<string, string> = {
+  PENDING: "Chờ duyệt",
+  APPROVED: "Đạt",
+  NEEDS_REVISION: "Cần bổ sung",
+  REJECTED: "Không đạt",
+};
+
+const REVIEW_COLORS: Record<string, string> = {
+  PENDING: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400",
+  APPROVED: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400",
+  NEEDS_REVISION: "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400",
+  REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400",
+};
 
 interface Props {
   month?: string;
   userId?: string;
   showReport?: boolean;
   showUser?: boolean;
+  showReview?: boolean;
   admin?: boolean;
   ownOnly?: boolean;
   canEdit?: boolean;
   onChange?: () => void;
+  onReviewClick?: (att: Attendance) => void;
+  reviewableOnly?: boolean;
 }
 
 export default function AttendanceTable({
@@ -42,10 +65,13 @@ export default function AttendanceTable({
   userId,
   showReport = false,
   showUser = false,
+  showReview = false,
   admin = false,
   ownOnly = false,
   canEdit = false,
   onChange,
+  onReviewClick,
+  reviewableOnly = false,
 }: Props) {
   const [data, setData] = useState<Attendance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,14 +90,20 @@ export default function AttendanceTable({
     if (ownOnly) params.set("ownOnly", "true");
 
     const res = await fetch(`/api/attendance?${params}`);
-    if (res.ok) setData(await res.json());
+    if (res.ok) {
+      let rows = await res.json();
+      if (reviewableOnly) {
+        rows = (rows as Attendance[]).filter((a) => a.reviewStatus);
+      }
+      setData(rows);
+    }
     setLoading(false);
   }
 
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, userId, ownOnly]);
+  }, [month, userId, ownOnly, reviewableOnly]);
 
   async function toggleAttachments(id: string) {
     if (expandedId === id) {
@@ -162,6 +194,7 @@ export default function AttendanceTable({
                 <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Buổi</th>
                 <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Trạng thái</th>
                 {showReport && <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Công việc</th>}
+                {showReview && <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Duyệt</th>}
                 <th className="px-4 py-3.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   <Paperclip className="w-3.5 h-3.5 inline" />
                 </th>
@@ -183,6 +216,25 @@ export default function AttendanceTable({
                     {showReport && (
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate">
                         {item.workReport || <span className="text-gray-300 dark:text-gray-600">-</span>}
+                      </td>
+                    )}
+                    {showReview && (
+                      <td className="px-4 py-3">
+                        {item.reviewStatus ? (
+                          <button
+                            onClick={() => onReviewClick?.(item)}
+                            disabled={!onReviewClick}
+                            className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${REVIEW_COLORS[item.reviewStatus] || ""} ${
+                              onReviewClick ? "hover:opacity-80 cursor-pointer" : "cursor-default"
+                            }`}
+                            title={item.reviewComment || ""}
+                          >
+                            {REVIEW_LABEL[item.reviewStatus] || item.reviewStatus}
+                            {item.autoApproved ? " (auto)" : ""}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
                       </td>
                     )}
                     <td className="px-4 py-3 text-center">

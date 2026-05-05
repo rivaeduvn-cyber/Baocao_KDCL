@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { findAttendances, createAttendance } from "@/lib/db";
+import { findAttendances, createAttendance, findUserById, createNotification } from "@/lib/db";
 import { resolveAttendanceScope } from "@/lib/org-tree";
 
 export async function GET(req: NextRequest) {
@@ -67,6 +67,21 @@ export async function POST(req: NextRequest) {
       status: status || "PRESENT",
       workReport: workReport || null,
     });
+
+    // Notify direct manager nếu có workReport (= reviewStatus PENDING)
+    if (attendance.reviewStatus === "PENDING" && session.user.managerId) {
+      const manager = await findUserById(session.user.managerId);
+      if (manager) {
+        await createNotification({
+          userId: manager.id,
+          type: "REVIEW_REQUESTED",
+          title: `${session.user.name} có báo cáo mới cần duyệt`,
+          body: workReport.length > 100 ? workReport.slice(0, 100) + "..." : workReport,
+          link: "/my-team",
+        });
+      }
+    }
+
     return NextResponse.json(attendance, { status: 201 });
   } catch (e: unknown) {
     if (e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002") {

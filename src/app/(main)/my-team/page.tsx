@@ -5,7 +5,19 @@ import { useSession } from "next-auth/react";
 import { LEVEL_LABEL, LEVEL_RANK } from "@/lib/org-tree";
 import { getCurrentMonth } from "@/lib/utils";
 import AttendanceTable from "@/components/attendance-table";
+import ReviewModal from "@/components/review-modal";
 import { ChevronRight, Users } from "lucide-react";
+
+interface AttendanceForReview {
+  id: string;
+  date: string;
+  session: string;
+  workReport: string | null;
+  reviewStatus: string | null;
+  reviewComment: string | null;
+  user?: { name: string; email: string };
+  userName?: string;
+}
 
 interface User {
   id: string;
@@ -22,6 +34,9 @@ export default function MyTeamPage() {
   const [loading, setLoading] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [month, setMonth] = useState(getCurrentMonth());
+  const [pendingOnly, setPendingOnly] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<AttendanceForReview | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     fetch("/api/users")
@@ -107,26 +122,49 @@ export default function MyTeamPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">
               {selectedUserId
                 ? `Báo cáo của ${users.find((u) => u.id === selectedUserId)?.name || ""}`
                 : "Báo cáo toàn team"}
             </h3>
-            <input
-              type="month"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm"
-            />
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pendingOnly}
+                  onChange={(e) => setPendingOnly(e.target.checked)}
+                  className="rounded border-gray-300 dark:border-gray-700"
+                />
+                Chỉ báo cáo cần duyệt
+              </label>
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm"
+              />
+            </div>
           </div>
 
           <AttendanceTable
+            key={refreshKey}
             month={month}
             userId={selectedUserId || undefined}
             showReport
             showUser={!selectedUserId}
+            showReview
+            reviewableOnly={pendingOnly}
+            onReviewClick={(att) => setReviewTarget(att as AttendanceForReview)}
           />
+
+          {reviewTarget && (
+            <ReviewModal
+              attendance={reviewTarget}
+              onClose={() => setReviewTarget(null)}
+              onReviewed={() => setRefreshKey((k) => k + 1)}
+            />
+          )}
         </>
       )}
     </div>

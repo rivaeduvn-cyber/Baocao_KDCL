@@ -14,7 +14,7 @@ interface NavLink {
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
-  badgeKey?: "pendingEditRequests";
+  badgeKey?: "pendingEditRequests" | "pendingReviews";
 }
 
 /** Build sidebar links based on role + level. */
@@ -38,7 +38,7 @@ function buildLinks(role?: string, level?: string | null): { menu: NavLink[]; ad
 
   // Cấp trên (VT/GD/TBP) thấy menu xem cấp dưới
   if (hasSubordinates) {
-    menu.push({ href: "/my-team", label: "Cấp dưới của tôi", icon: UsersRound });
+    menu.push({ href: "/my-team", label: "Cấp dưới của tôi", icon: UsersRound, badgeKey: "pendingReviews" });
   }
 
   menu.push({ href: "/settings", label: "Cài đặt", icon: Settings });
@@ -66,27 +66,43 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingEditRequests, setPendingEditRequests] = useState(0);
   const isAdmin = session?.user?.role === "ADMIN";
+  const userLevel = session?.user?.level;
+  const hasSubordinates = userLevel === "VIEN_TRUONG" || userLevel === "GIAM_DOC" || userLevel === "TRUONG_BO_PHAN";
   const { menu: employeeLinks, admin: adminLinks, adminLabel } = buildLinks(
     session?.user?.role,
-    session?.user?.level
+    userLevel
   );
+  const [pendingReviews, setPendingReviews] = useState(0);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin && !hasSubordinates) return;
     let cancelled = false;
     async function poll() {
-      const res = await fetch("/api/edit-requests?status=PENDING");
-      if (res.ok && !cancelled) {
-        const data = await res.json();
-        setPendingEditRequests(Array.isArray(data) ? data.length : 0);
+      const calls: Promise<void>[] = [];
+      if (isAdmin) {
+        calls.push(
+          fetch("/api/edit-requests?status=PENDING")
+            .then((r) => (r.ok ? r.json() : []))
+            .then((d) => { if (!cancelled) setPendingEditRequests(Array.isArray(d) ? d.length : 0); })
+            .catch(() => {})
+        );
       }
+      if (isAdmin || hasSubordinates) {
+        calls.push(
+          fetch("/api/attendance/pending-review-count")
+            .then((r) => (r.ok ? r.json() : { count: 0 }))
+            .then((d) => { if (!cancelled) setPendingReviews(Number(d.count) || 0); })
+            .catch(() => {})
+        );
+      }
+      await Promise.all(calls);
     }
     poll();
     const interval = setInterval(poll, 60_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [isAdmin, pathname]);
+  }, [isAdmin, hasSubordinates, pathname]);
 
-  const badges: Record<string, number> = { pendingEditRequests };
+  const badges: Record<string, number> = { pendingEditRequests, pendingReviews };
 
   const initials = session?.user?.name
     ?.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?";
@@ -125,21 +141,36 @@ export default function Sidebar() {
         {employeeLinks.map((link) => {
           const Icon = link.icon;
           const active = pathname === link.href;
+          const badge = link.badgeKey ? badges[link.badgeKey] : 0;
           return (
             <Link
               key={link.href}
               href={link.href}
               onClick={() => setMobileOpen(false)}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150",
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150 relative",
                 active
                   ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
                   : "text-gray-400 hover:bg-gray-800/70 hover:text-white"
               )}
               title={link.label}
             >
-              <Icon className="w-5 h-5 shrink-0" />
-              {!collapsed && <span>{link.label}</span>}
+              <div className="relative shrink-0">
+                <Icon className="w-5 h-5" />
+                {collapsed && badge > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                )}
+              </div>
+              {!collapsed && (
+                <>
+                  <span className="flex-1">{link.label}</span>
+                  {badge > 0 && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white rounded-full min-w-[18px] text-center">
+                      {badge}
+                    </span>
+                  )}
+                </>
+              )}
             </Link>
           );
         })}

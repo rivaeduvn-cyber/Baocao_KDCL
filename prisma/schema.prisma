@@ -22,10 +22,11 @@ model User {
 
   manager       User?          @relation("ManagerSubordinates", fields: [managerId], references: [id])
   subordinates  User[]         @relation("ManagerSubordinates")
-  attendances   Attendance[]
-  editRequests  EditRequest[]  @relation("RequesterRequests")
-  reviewedEdits EditRequest[]  @relation("ReviewerRequests")
-  notifications Notification[]
+  attendances         Attendance[]
+  reviewedAttendances Attendance[]   @relation("AttendanceReviewer")
+  editRequests        EditRequest[]  @relation("RequesterRequests")
+  reviewedEdits       EditRequest[]  @relation("ReviewerRequests")
+  notifications       Notification[]
 
   @@index([managerId])
   @@index([level])
@@ -56,13 +57,26 @@ model Attendance {
   workReport String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  // Review (Phase 2 — chiều thuận)
+  reviewStatus    String?    // null khi không có workReport; PENDING | APPROVED | NEEDS_REVISION | REJECTED
+  reviewerId      String?
+  reviewComment   String?
+  reviewedAt      DateTime?
+  autoApproveAt   DateTime?  // = createdAt + 3 ngày, dùng cho cron auto-approve
+  autoApproved    Boolean    @default(false)
+  delegatedFromId String?    // id của người uỷ quyền nếu reviewer là người được uỷ quyền
+
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewer     User?         @relation("AttendanceReviewer", fields: [reviewerId], references: [id])
   attachments  Attachment[]
   editRequests EditRequest[]
 
   @@unique([userId, date, session])
   @@index([userId])
   @@index([date])
+  @@index([reviewStatus, autoApproveAt])
+  @@index([reviewerId])
 }
 
 model EditRequest {
