@@ -8,9 +8,9 @@ import {
   countAttachmentsByAttendanceId,
   createAttachment,
 } from "@/lib/db";
-
-const MAX_FILES = 5;
-const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+import {
+  MAX_FILES, MAX_SIZE_BYTES, MAX_SIZE_MB, isAllowedMime, ALLOWED_HINT,
+} from "@/lib/upload-constraints";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -46,11 +46,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Validate file sizes
+  // Validate size + type
   for (const file of files) {
-    if (file.size > MAX_SIZE) {
+    if (file.size > MAX_SIZE_BYTES) {
       return NextResponse.json(
-        { error: `File "${file.name}" vượt quá 10MB` },
+        { error: `File "${file.name}" vượt quá ${MAX_SIZE_MB}MB` },
+        { status: 400 }
+      );
+    }
+    if (!isAllowedMime(file.type)) {
+      return NextResponse.json(
+        { error: `File "${file.name}" không thuộc loại được hỗ trợ (${ALLOWED_HINT})` },
         { status: 400 }
       );
     }

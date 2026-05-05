@@ -7,9 +7,8 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const isAdmin = session.user.role === "ADMIN";
-  const where = isAdmin ? {} : { userId: session.user.id };
-
+  // Dashboard cá nhân: tất cả user đều xem stats của riêng mình
+  const where = { userId: session.user.id };
   const attendances = await findAttendances(where);
 
   const present = attendances.filter((a) => a.status === "PRESENT").length;

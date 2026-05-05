@@ -1,24 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getCurrentMonth } from "@/lib/utils";
 import AttendanceTable from "@/components/attendance-table";
+import { FileSpreadsheet, FileText } from "lucide-react";
 
 export default function AdminAttendancePage() {
   const [month, setMonth] = useState(getCurrentMonth());
   const [userId, setUserId] = useState("");
   const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  if (!loaded) {
+  useEffect(() => {
     fetch("/api/users")
       .then((r) => r.json())
-      .then((data) => { setUsers(data); setLoaded(true); });
-  }
+      .then((data) => setUsers(Array.isArray(data) ? data : []));
+  }, []);
 
-  async function handleExport(format: string) {
-    setExporting(true);
+  async function handleExport(format: "excel" | "pdf") {
+    setExporting(format);
     try {
       const params = new URLSearchParams({ format, month });
       if (userId) params.set("userId", userId);
@@ -33,25 +34,34 @@ export default function AdminAttendancePage() {
         URL.revokeObjectURL(url);
       }
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Chấm công tổng hợp</h2>
         <div className="flex gap-2">
           <button
             onClick={() => handleExport("excel")}
-            disabled={exporting}
-            className="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50"
+            disabled={exporting !== null}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50 transition-all shadow-md shadow-green-600/30"
           >
-            Xuất Excel
+            <FileSpreadsheet className="w-4 h-4" />
+            {exporting === "excel" ? "Đang xuất..." : "Xuất Excel"}
+          </button>
+          <button
+            onClick={() => handleExport("pdf")}
+            disabled={exporting !== null}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50 transition-all shadow-md shadow-red-600/30"
+          >
+            <FileText className="w-4 h-4" />
+            {exporting === "pdf" ? "Đang xuất..." : "Xuất PDF"}
           </button>
         </div>
       </div>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <input
           type="month"
           value={month}
@@ -69,7 +79,16 @@ export default function AdminAttendancePage() {
           ))}
         </select>
       </div>
-      <AttendanceTable month={month} userId={userId} showReport showUser admin />
+      <AttendanceTable
+        key={refreshKey}
+        month={month}
+        userId={userId}
+        showReport
+        showUser
+        admin
+        canEdit
+        onChange={() => setRefreshKey((k) => k + 1)}
+      />
     </div>
   );
 }

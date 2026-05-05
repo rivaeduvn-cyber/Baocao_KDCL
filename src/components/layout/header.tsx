@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useTheme } from "@/components/theme-provider";
 import { Sun, Moon } from "lucide-react";
+import NotificationBell from "@/components/notification-bell";
 
 export default function Header() {
   const { data: session } = useSession();
@@ -15,7 +16,8 @@ export default function Header() {
           Hệ thống Chấm công & Báo cáo
         </h1>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
+        {session?.user && <NotificationBell />}
         <button
           onClick={toggle}
           className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -24,7 +26,7 @@ export default function Header() {
           {theme === "light" ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
         </button>
         {session?.user && (
-          <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">
+          <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block ml-2">
             Xin chào, <span className="font-medium text-gray-700 dark:text-gray-200">{session.user.name}</span>
           </span>
         )}

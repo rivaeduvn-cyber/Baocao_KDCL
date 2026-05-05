@@ -20,7 +20,7 @@ export default function AttendancePage() {
         <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-3">
           Lịch sử chấm công
         </h3>
-        <AttendanceTable key={refreshKey} ownOnly />
+        <AttendanceTable key={refreshKey} ownOnly canEdit showReport />
       </div>
     </div>
   );

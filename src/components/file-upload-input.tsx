@@ -2,6 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Upload, X, FileText, Image, File } from "lucide-react";
+import {
+  MAX_FILES, MAX_SIZE_MB, ACCEPT_ATTR, ALLOWED_HINT, isAllowedMime,
+} from "@/lib/upload-constraints";
 
 interface Props {
   files: File[];
@@ -25,8 +28,8 @@ function getFileIcon(type: string) {
 export default function FileUploadInput({
   files,
   onChange,
-  maxFiles = 5,
-  maxSizeMB = 10,
+  maxFiles = MAX_FILES,
+  maxSizeMB = MAX_SIZE_MB,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -43,11 +46,15 @@ export default function FileUploadInput({
         return;
       }
 
-      // Validate size
+      // Validate size + type
       const maxBytes = maxSizeMB * 1024 * 1024;
       for (const f of arr) {
         if (f.size > maxBytes) {
           setError(`"${f.name}" vượt quá ${maxSizeMB}MB`);
+          return;
+        }
+        if (!isAllowedMime(f.type)) {
+          setError(`"${f.name}" không thuộc loại được hỗ trợ`);
           return;
         }
       }
@@ -90,12 +97,13 @@ export default function FileUploadInput({
           Kéo thả hoặc click chọn file
         </p>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-          Tối đa {maxFiles} file, mỗi file {maxSizeMB}MB
+          Tối đa {maxFiles} file, mỗi file {maxSizeMB}MB · {ALLOWED_HINT}
         </p>
         <input
           ref={inputRef}
           type="file"
           multiple
+          accept={ACCEPT_ATTR}
           className="hidden"
           onChange={(e) => {
             if (e.target.files?.length) addFiles(e.target.files);

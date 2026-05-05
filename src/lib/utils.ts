@@ -32,3 +32,16 @@ export function getTodayString(): string {
   const now = new Date();
   return now.toISOString().split("T")[0];
 }
+
+/** Editable window for employee self-edit (admin bypasses). */
+export const EDIT_WINDOW_DAYS = 3;
+
+/** True if a record dated `date` (YYYY-MM-DD) is still within the edit window. */
+export function isWithinEditWindow(date: string, days: number = EDIT_WINDOW_DAYS): boolean {
+  const recordTime = new Date(date + "T00:00:00").getTime();
+  if (Number.isNaN(recordTime)) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = (today.getTime() - recordTime) / (1000 * 60 * 60 * 24);
+  return diffDays <= days;
+}
