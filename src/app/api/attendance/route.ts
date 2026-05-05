@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { findAttendances, createAttendance } from "@/lib/db";
+import { resolveAttendanceScope } from "@/lib/org-tree";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -12,20 +13,34 @@ export async function GET(req: NextRequest) {
   const userId = searchParams.get("userId");
   const ownOnly = searchParams.get("ownOnly");
 
-  const where: { userId?: string; month?: string } = {};
+  const where: { userId?: string; userIds?: string[]; month?: string } = {};
 
-  if (session.user.role !== "ADMIN" || ownOnly === "true") {
+  if (ownOnly === "true") {
+    // Always restrict to self
     where.userId = session.user.id;
-  } else if (userId) {
-    where.userId = userId;
+  } else {
+    // Resolve scope by role + level
+    const scope = await resolveAttendanceScope(session.user);
+    if (scope === null) {
+      // Admin or VT: see everyone, optionally filter by userId
+      if (userId) where.userId = userId;
+    } else {
+      // GD/TBP/STAFF: scoped to self + subordinates
+      if (userId) {
+        // explicit userId only allowed if within scope
+        if (!scope.includes(userId)) {
+          return NextResponse.json({ error: "Không có quyền xem nhân viên này" }, { status: 403 });
+        }
+        where.userId = userId;
+      } else {
+        where.userIds = scope;
+      }
+    }
   }
 
-  if (month) {
-    where.month = month;
-  }
+  if (month) where.month = month;
 
   const attendances = await findAttendances(where, { includeUser: true, orderBy: "desc" });
-
   return NextResponse.json(attendances);
 }
 

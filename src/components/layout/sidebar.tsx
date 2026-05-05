@@ -4,29 +4,89 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  LayoutDashboard, Clock, FileText, Users, ClipboardList,
+  LayoutDashboard, Clock, FileText, Users, ClipboardList, BarChart3, MailQuestion, Settings, GitBranch, UsersRound,
   LogOut, Menu, X, ChevronLeft, ChevronRight,
 } from "lucide-react";
 
-const employeeLinks = [
-  { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
-  { href: "/attendance", label: "Chấm công", icon: Clock },
-  { href: "/reports", label: "Báo cáo của tôi", icon: FileText },
-];
+interface NavLink {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  badgeKey?: "pendingEditRequests";
+}
 
-const adminLinks = [
-  { href: "/admin/users", label: "Quản lý nhân viên", icon: Users },
-  { href: "/admin/attendance", label: "Chấm công tổng hợp", icon: ClipboardList },
-];
+/** Build sidebar links based on role + level. */
+function buildLinks(role?: string, level?: string | null): { menu: NavLink[]; admin: NavLink[]; adminLabel: string } {
+  const isAdmin = role === "ADMIN";
+  const isVT = level === "VIEN_TRUONG";
+  const hasSubordinates = level === "VIEN_TRUONG" || level === "GIAM_DOC" || level === "TRUONG_BO_PHAN";
+
+  const menu: NavLink[] = [
+    { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
+  ];
+
+  // Admin role không cần chấm công cá nhân; những user có level (kể cả VT) thì cần
+  if (!isAdmin) {
+    menu.push(
+      { href: "/attendance", label: "Chấm công", icon: Clock },
+      { href: "/reports", label: "Báo cáo của tôi", icon: FileText },
+      { href: "/my-edit-requests", label: "Yêu cầu sửa của tôi", icon: MailQuestion },
+    );
+  }
+
+  // Cấp trên (VT/GD/TBP) thấy menu xem cấp dưới
+  if (hasSubordinates) {
+    menu.push({ href: "/my-team", label: "Cấp dưới của tôi", icon: UsersRound });
+  }
+
+  menu.push({ href: "/settings", label: "Cài đặt", icon: Settings });
+
+  // Admin section
+  const admin: NavLink[] = [];
+  if (isAdmin || isVT) {
+    admin.push({ href: "/admin/users", label: "Quản lý nhân viên", icon: Users });
+    admin.push({ href: "/admin/org-chart", label: "Cây tổ chức", icon: GitBranch });
+    admin.push({ href: "/admin/attendance", label: "Chấm công tổng hợp", icon: ClipboardList });
+    admin.push({ href: "/admin/reports", label: "Báo cáo tổng hợp", icon: BarChart3 });
+  }
+  if (isAdmin) {
+    admin.push({ href: "/admin/edit-requests", label: "Yêu cầu sửa", icon: MailQuestion, badgeKey: "pendingEditRequests" });
+  }
+
+  const adminLabel = isAdmin ? "Quản trị" : "Lãnh đạo";
+  return { menu, admin, adminLabel };
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [pendingEditRequests, setPendingEditRequests] = useState(0);
   const isAdmin = session?.user?.role === "ADMIN";
+  const { menu: employeeLinks, admin: adminLinks, adminLabel } = buildLinks(
+    session?.user?.role,
+    session?.user?.level
+  );
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    async function poll() {
+      const res = await fetch("/api/edit-requests?status=PENDING");
+      if (res.ok && !cancelled) {
+        const data = await res.json();
+        setPendingEditRequests(Array.isArray(data) ? data.length : 0);
+      }
+    }
+    poll();
+    const interval = setInterval(poll, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [isAdmin, pathname]);
+
+  const badges: Record<string, number> = { pendingEditRequests };
 
   const initials = session?.user?.name
     ?.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?";
@@ -84,31 +144,46 @@ export default function Sidebar() {
           );
         })}
 
-        {isAdmin && (
+        {adminLinks.length > 0 && (
           <>
             {!collapsed && (
               <p className="px-3 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider mt-4">
-                Quản trị
+                {adminLabel}
               </p>
             )}
             {adminLinks.map((link) => {
               const Icon = link.icon;
               const active = pathname.startsWith(link.href);
+              const badge = link.badgeKey ? badges[link.badgeKey] : 0;
               return (
                 <Link
                   key={link.href}
                   href={link.href}
                   onClick={() => setMobileOpen(false)}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150",
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150 relative",
                     active
                       ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
                       : "text-gray-400 hover:bg-gray-800/70 hover:text-white"
                   )}
                   title={link.label}
                 >
-                  <Icon className="w-5 h-5 shrink-0" />
-                  {!collapsed && <span>{link.label}</span>}
+                  <div className="relative shrink-0">
+                    <Icon className="w-5 h-5" />
+                    {collapsed && badge > 0 && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                    )}
+                  </div>
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1">{link.label}</span>
+                      {badge > 0 && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white rounded-full min-w-[18px] text-center">
+                          {badge}
+                        </span>
+                      )}
+                    </>
+                  )}
                 </Link>
               );
             })}

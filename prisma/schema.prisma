@@ -9,14 +9,42 @@ datasource db {
 }
 
 model User {
-  id          String       @id @default(cuid())
-  email       String       @unique
-  password    String
-  name        String
-  role        String       @default("EMPLOYEE")
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  attendances Attendance[]
+  id            String         @id @default(cuid())
+  email         String         @unique
+  password      String
+  name          String
+  role          String         @default("EMPLOYEE")     // ADMIN | EMPLOYEE — quyền hệ thống
+  level         String?                                  // VIEN_TRUONG | GIAM_DOC | TRUONG_BO_PHAN | STAFF — vị trí trong cây tổ chức (null nếu Admin role không tham gia nghiệp vụ)
+  managerId     String?
+  position      String?                                  // chức danh hiển thị
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  manager       User?          @relation("ManagerSubordinates", fields: [managerId], references: [id])
+  subordinates  User[]         @relation("ManagerSubordinates")
+  attendances   Attendance[]
+  editRequests  EditRequest[]  @relation("RequesterRequests")
+  reviewedEdits EditRequest[]  @relation("ReviewerRequests")
+  notifications Notification[]
+
+  @@index([managerId])
+  @@index([level])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // EDIT_REQUEST_APPROVED | EDIT_REQUEST_REJECTED
+  title     String
+  body      String?
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
 }
 
 model Attendance {
@@ -28,12 +56,35 @@ model Attendance {
   workReport String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  attachments Attachment[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
+  editRequests EditRequest[]
 
   @@unique([userId, date, session])
   @@index([userId])
   @@index([date])
+}
+
+model EditRequest {
+  id            String   @id @default(cuid())
+  attendanceId  String
+  requesterId   String
+  reviewerId    String?
+  proposedStatus String?
+  proposedReport String?
+  reason        String
+  status        String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewNote    String?
+  createdAt     DateTime @default(now())
+  reviewedAt    DateTime?
+
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  requester  User       @relation("RequesterRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+  reviewer   User?      @relation("ReviewerRequests", fields: [reviewerId], references: [id])
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([attendanceId])
 }
 
 model Attachment {

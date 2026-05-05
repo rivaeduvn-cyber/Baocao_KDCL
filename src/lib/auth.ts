@@ -1,4 +1,4 @@
-import { NextAuthOptions } from "next-auth";
+import { NextAuthOptions, Session } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { findUserByEmail } from "./db";
@@ -30,6 +30,8 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           name: user.name,
           role: user.role,
+          level: user.level,
+          managerId: user.managerId,
         };
       },
     }),
@@ -39,16 +41,25 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as unknown as { role: string }).role;
+        const u = user as unknown as {
+          role: string;
+          level: string | null;
+          managerId: string | null;
+        };
+        token.role = u.role;
+        token.level = u.level ?? null;
+        token.managerId = u.managerId ?? null;
         token.id = user.id;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { id: string; role: string }).id = token.id as string;
-        (session.user as { id: string; role: string }).role =
-          token.role as string;
+        const u = session.user as Session["user"];
+        u.id = token.id as string;
+        u.role = token.role as string;
+        u.level = (token.level as string | null) ?? null;
+        u.managerId = (token.managerId as string | null) ?? null;
       }
       return session;
     },
