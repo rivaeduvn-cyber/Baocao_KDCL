@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Clock, FileText, Users, ClipboardList, BarChart3, MailQuestion, Settings, GitBranch, UsersRound,
+  CheckSquare, ListTodo,
   LogOut, Menu, X, ChevronLeft, ChevronRight,
 } from "lucide-react";
 
@@ -14,7 +15,7 @@ interface NavLink {
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
-  badgeKey?: "pendingEditRequests" | "pendingReviews";
+  badgeKey?: "pendingEditRequests" | "pendingReviews" | "myTasks" | "awaitingReview";
 }
 
 /** Build sidebar links based on role + level. */
@@ -32,13 +33,17 @@ function buildLinks(role?: string, level?: string | null): { menu: NavLink[]; ad
     menu.push(
       { href: "/attendance", label: "Chấm công", icon: Clock },
       { href: "/reports", label: "Báo cáo của tôi", icon: FileText },
+      { href: "/my-tasks", label: "Việc của tôi", icon: ListTodo, badgeKey: "myTasks" },
       { href: "/my-edit-requests", label: "Yêu cầu sửa của tôi", icon: MailQuestion },
     );
   }
 
-  // Cấp trên (VT/GD/TBP) thấy menu xem cấp dưới
+  // Cấp trên (VT/GD/TBP) thấy menu xem cấp dưới + giao việc
   if (hasSubordinates) {
-    menu.push({ href: "/my-team", label: "Cấp dưới của tôi", icon: UsersRound, badgeKey: "pendingReviews" });
+    menu.push(
+      { href: "/my-team", label: "Cấp dưới của tôi", icon: UsersRound, badgeKey: "pendingReviews" },
+      { href: "/team-tasks", label: "Giao việc", icon: CheckSquare, badgeKey: "awaitingReview" },
+    );
   }
 
   menu.push({ href: "/settings", label: "Cài đặt", icon: Settings });
@@ -73,9 +78,11 @@ export default function Sidebar() {
     userLevel
   );
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [myTasks, setMyTasks] = useState(0);
+  const [awaitingReview, setAwaitingReview] = useState(0);
 
   useEffect(() => {
-    if (!isAdmin && !hasSubordinates) return;
+    if (!session) return;
     let cancelled = false;
     async function poll() {
       const calls: Promise<void>[] = [];
@@ -95,14 +102,26 @@ export default function Sidebar() {
             .catch(() => {})
         );
       }
+      // Task counts cho mọi user (employeeLinks chỉ render khi có)
+      calls.push(
+        fetch("/api/tasks/counts")
+          .then((r) => (r.ok ? r.json() : { pending: 0, awaitingReview: 0 }))
+          .then((d) => {
+            if (!cancelled) {
+              setMyTasks(Number(d.pending) || 0);
+              setAwaitingReview(Number(d.awaitingReview) || 0);
+            }
+          })
+          .catch(() => {})
+      );
       await Promise.all(calls);
     }
     poll();
     const interval = setInterval(poll, 60_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [isAdmin, hasSubordinates, pathname]);
+  }, [isAdmin, hasSubordinates, pathname, session]);
 
-  const badges: Record<string, number> = { pendingEditRequests, pendingReviews };
+  const badges: Record<string, number> = { pendingEditRequests, pendingReviews, myTasks, awaitingReview };
 
   const initials = session?.user?.name
     ?.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?";

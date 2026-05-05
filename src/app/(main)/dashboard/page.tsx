@@ -7,6 +7,7 @@ import { ClipboardList, ArrowRight } from "lucide-react";
 import StatsCards from "@/components/stats-cards";
 import MonthlyChart from "@/components/monthly-chart";
 import TodayReminder from "@/components/today-reminder";
+import TaskSummaryBanner from "@/components/task-summary-banner";
 
 interface Stats {
   totalSessions: number;
@@ -51,6 +52,7 @@ export default function DashboardPage() {
       </h2>
 
       {isEmployee && <TodayReminder />}
+      <TaskSummaryBanner />
 
       {hasNoData ? (
         <EmptyState isEmployee={isEmployee} />

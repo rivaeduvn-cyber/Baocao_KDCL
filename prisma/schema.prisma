@@ -27,6 +27,8 @@ model User {
   editRequests        EditRequest[]  @relation("RequesterRequests")
   reviewedEdits       EditRequest[]  @relation("ReviewerRequests")
   notifications       Notification[]
+  assignedTasks       Task[]         @relation("TaskAssignee")
+  createdTasks        Task[]         @relation("TaskAssigner")
 
   @@index([managerId])
   @@index([level])
@@ -99,6 +101,33 @@ model EditRequest {
   @@index([status])
   @@index([requesterId])
   @@index([attendanceId])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  parentId    String?                                  // null = task gốc; có giá trị = subtask cấp 2
+  title       String
+  description String?
+  assignerId  String                                   // người giao
+  assigneeId  String                                   // người làm
+  priority    String    @default("NORMAL")             // LOW | NORMAL | HIGH | URGENT
+  dueDate     String?                                   // YYYY-MM-DD
+  status      String    @default("ASSIGNED")           // ASSIGNED | IN_PROGRESS | SUBMITTED | COMPLETED | REOPENED | CANCELLED
+  result      String?                                   // báo cáo hoàn thành (do assignee viết)
+  reviewNote  String?                                   // ghi chú khi reopen/complete
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  submittedAt DateTime?
+  completedAt DateTime?
+
+  parent   Task?  @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children Task[] @relation("TaskHierarchy")
+  assigner User   @relation("TaskAssigner", fields: [assignerId], references: [id])
+  assignee User   @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+
+  @@index([assigneeId, status])
+  @@index([assignerId])
+  @@index([parentId])
 }
 
 model Attachment {

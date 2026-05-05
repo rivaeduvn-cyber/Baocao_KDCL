@@ -868,6 +868,325 @@ export async function countUnreadNotifications(userId: string): Promise<number> 
   return Number(result.rows[0]?.cnt ?? 0);
 }
 
+// ---------- Task operations ----------
+
+export interface Task {
+  id: string;
+  parentId: string | null;
+  title: string;
+  description: string | null;
+  assignerId: string;
+  assigneeId: string;
+  priority: string;
+  dueDate: string | null;
+  status: string;
+  result: string | null;
+  reviewNote: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  submittedAt: string | Date | null;
+  completedAt: string | Date | null;
+}
+
+export interface TaskEnriched extends Task {
+  assignerName: string;
+  assigneeName: string;
+}
+
+export async function createTask(data: {
+  parentId?: string | null;
+  title: string;
+  description?: string | null;
+  assignerId: string;
+  assigneeId: string;
+  priority?: string;
+  dueDate?: string | null;
+}): Promise<Task> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.task.create({
+      data: {
+        parentId: data.parentId ?? null,
+        title: data.title,
+        description: data.description ?? null,
+        assignerId: data.assignerId,
+        assigneeId: data.assigneeId,
+        priority: data.priority || "NORMAL",
+        dueDate: data.dueDate ?? null,
+      },
+    }) as unknown as Task;
+  }
+  const id = generateId();
+  const now = nowISO();
+  await tursoExecute(
+    `INSERT INTO Task (id, parentId, title, description, assignerId, assigneeId, priority, dueDate, status, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ASSIGNED', ?, ?)`,
+    [
+      id, data.parentId ?? null, data.title, data.description ?? null,
+      data.assignerId, data.assigneeId, data.priority || "NORMAL",
+      data.dueDate ?? null, now, now,
+    ]
+  );
+  return {
+    id,
+    parentId: data.parentId ?? null,
+    title: data.title,
+    description: data.description ?? null,
+    assignerId: data.assignerId,
+    assigneeId: data.assigneeId,
+    priority: data.priority || "NORMAL",
+    dueDate: data.dueDate ?? null,
+    status: "ASSIGNED",
+    result: null,
+    reviewNote: null,
+    createdAt: now,
+    updatedAt: now,
+    submittedAt: null,
+    completedAt: null,
+  };
+}
+
+export async function findTaskById(id: string): Promise<Task | null> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.task.findUnique({ where: { id } }) as unknown as Task | null;
+  }
+  const result = await tursoExecute("SELECT * FROM Task WHERE id = ?", [id]);
+  return (result.rows[0] as Task) ?? null;
+}
+
+/**
+ * Find tasks. Filters all optional.
+ *   - assigneeId: tasks I need to do
+ *   - assignerId: tasks I gave out
+ *   - status: filter by single status (or array via SQL IN)
+ *   - parentId: 'null' string for top-level only, or specific id for children
+ */
+export async function findTasks(filter: {
+  assigneeId?: string;
+  assignerId?: string;
+  assigneeIds?: string[];
+  status?: string;
+  parentId?: string | null;
+  topLevelOnly?: boolean;
+}): Promise<TaskEnriched[]> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    const where: Record<string, unknown> = {};
+    if (filter.assigneeId) where.assigneeId = filter.assigneeId;
+    if (filter.assignerId) where.assignerId = filter.assignerId;
+    if (filter.assigneeIds && filter.assigneeIds.length > 0) {
+      where.assigneeId = { in: filter.assigneeIds };
+    }
+    if (filter.status) where.status = filter.status;
+    if (filter.parentId !== undefined) where.parentId = filter.parentId;
+    if (filter.topLevelOnly) where.parentId = null;
+
+    const rows = await prisma.task.findMany({
+      where,
+      include: {
+        assigner: { select: { name: true } },
+        assignee: { select: { name: true } },
+      },
+      orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      parentId: r.parentId,
+      title: r.title,
+      description: r.description,
+      assignerId: r.assignerId,
+      assigneeId: r.assigneeId,
+      priority: r.priority,
+      dueDate: r.dueDate,
+      status: r.status,
+      result: r.result,
+      reviewNote: r.reviewNote,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      submittedAt: r.submittedAt,
+      completedAt: r.completedAt,
+      assignerName: r.assigner.name,
+      assigneeName: r.assignee.name,
+    })) as TaskEnriched[];
+  }
+
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (filter.assigneeId) {
+    conditions.push("t.assigneeId = ?");
+    args.push(filter.assigneeId);
+  }
+  if (filter.assignerId) {
+    conditions.push("t.assignerId = ?");
+    args.push(filter.assignerId);
+  }
+  if (filter.assigneeIds && filter.assigneeIds.length > 0) {
+    const ph = filter.assigneeIds.map(() => "?").join(",");
+    conditions.push(`t.assigneeId IN (${ph})`);
+    args.push(...filter.assigneeIds);
+  }
+  if (filter.status) {
+    conditions.push("t.status = ?");
+    args.push(filter.status);
+  }
+  if (filter.topLevelOnly) {
+    conditions.push("t.parentId IS NULL");
+  } else if (filter.parentId !== undefined) {
+    if (filter.parentId === null) {
+      conditions.push("t.parentId IS NULL");
+    } else {
+      conditions.push("t.parentId = ?");
+      args.push(filter.parentId);
+    }
+  }
+  const whereClause = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
+
+  const result = await tursoExecute(
+    `SELECT t.*, ar.name AS assignerName, ae.name AS assigneeName
+     FROM Task t
+     LEFT JOIN User ar ON t.assignerId = ar.id
+     LEFT JOIN User ae ON t.assigneeId = ae.id
+     ${whereClause}
+     ORDER BY t.status ASC, t.dueDate ASC, t.createdAt DESC`,
+    args
+  );
+  return result.rows as TaskEnriched[];
+}
+
+export async function updateTaskStatus(
+  id: string,
+  data: { status: string; result?: string | null; reviewNote?: string | null }
+): Promise<Task> {
+  const setStatus = data.status;
+  const isSubmit = setStatus === "SUBMITTED";
+  const isComplete = setStatus === "COMPLETED";
+
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    return prisma.task.update({
+      where: { id },
+      data: {
+        status: setStatus,
+        ...(data.result !== undefined && { result: data.result }),
+        ...(data.reviewNote !== undefined && { reviewNote: data.reviewNote }),
+        ...(isSubmit && { submittedAt: new Date() }),
+        ...(isComplete && { completedAt: new Date() }),
+      },
+    }) as unknown as Task;
+  }
+
+  const sets: string[] = ["status = ?", "updatedAt = ?"];
+  const args: unknown[] = [setStatus, nowISO()];
+  if (data.result !== undefined) {
+    sets.push("result = ?");
+    args.push(data.result);
+  }
+  if (data.reviewNote !== undefined) {
+    sets.push("reviewNote = ?");
+    args.push(data.reviewNote);
+  }
+  if (isSubmit) {
+    sets.push("submittedAt = ?");
+    args.push(nowISO());
+  }
+  if (isComplete) {
+    sets.push("completedAt = ?");
+    args.push(nowISO());
+  }
+  args.push(id);
+  await tursoExecute(`UPDATE Task SET ${sets.join(", ")} WHERE id = ?`, args);
+  const result = await tursoExecute("SELECT * FROM Task WHERE id = ?", [id]);
+  return result.rows[0] as Task;
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    await prisma.task.delete({ where: { id } });
+    return;
+  }
+  await tursoExecute("DELETE FROM Task WHERE id = ?", [id]);
+}
+
+/** Auto-complete parent task if all children COMPLETED. Returns true if completed. */
+export async function maybeAutoCompleteParent(parentId: string): Promise<boolean> {
+  const children = await findTasks({ parentId });
+  if (children.length === 0) return false;
+  const allDone = children.every((c) => c.status === "COMPLETED");
+  if (!allDone) return false;
+  const parent = await findTaskById(parentId);
+  if (!parent || parent.status === "COMPLETED") return false;
+  await updateTaskStatus(parentId, {
+    status: "COMPLETED",
+    reviewNote: "Tự động hoàn thành khi tất cả subtask đã xong",
+  });
+  return true;
+}
+
+export async function countTasksFor(
+  userId: string,
+  filter?: { overdue?: boolean; awaitingReview?: boolean; pending?: boolean }
+): Promise<number> {
+  const today = getTodayString();
+  if (!IS_TURSO) {
+    const prisma = await getPrisma();
+    if (filter?.overdue) {
+      return prisma.task.count({
+        where: {
+          assigneeId: userId,
+          status: { in: ["ASSIGNED", "IN_PROGRESS", "REOPENED"] },
+          dueDate: { lt: today, not: null },
+        },
+      });
+    }
+    if (filter?.awaitingReview) {
+      return prisma.task.count({
+        where: { assignerId: userId, status: "SUBMITTED" },
+      });
+    }
+    if (filter?.pending) {
+      return prisma.task.count({
+        where: {
+          assigneeId: userId,
+          status: { in: ["ASSIGNED", "IN_PROGRESS", "REOPENED"] },
+        },
+      });
+    }
+    return 0;
+  }
+
+  if (filter?.overdue) {
+    const r = await tursoExecute(
+      `SELECT COUNT(*) as cnt FROM Task
+       WHERE assigneeId = ? AND status IN ('ASSIGNED','IN_PROGRESS','REOPENED')
+         AND dueDate IS NOT NULL AND dueDate < ?`,
+      [userId, today]
+    );
+    return Number(r.rows[0]?.cnt ?? 0);
+  }
+  if (filter?.awaitingReview) {
+    const r = await tursoExecute(
+      `SELECT COUNT(*) as cnt FROM Task WHERE assignerId = ? AND status = 'SUBMITTED'`,
+      [userId]
+    );
+    return Number(r.rows[0]?.cnt ?? 0);
+  }
+  if (filter?.pending) {
+    const r = await tursoExecute(
+      `SELECT COUNT(*) as cnt FROM Task
+       WHERE assigneeId = ? AND status IN ('ASSIGNED','IN_PROGRESS','REOPENED')`,
+      [userId]
+    );
+    return Number(r.rows[0]?.cnt ?? 0);
+  }
+  return 0;
+}
+
+function getTodayString(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
 export async function markNotificationsRead(userId: string, ids?: string[]): Promise<void> {
   if (!IS_TURSO) {
     const prisma = await getPrisma();
